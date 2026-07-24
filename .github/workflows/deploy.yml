@@ -1,0 +1,148 @@
+name: Build, Push and Deploy
+
+# All AWS access here uses short-lived credentials via GitHub's OIDC provider
+# (see infrastructure/modules/iam) - no long-lived AWS access keys are stored
+# as GitHub secrets.
+#
+# Required repo variables (Settings > Secrets and variables > Actions > Variables),
+# all printed by `terraform output github_actions_setup_summary` after apply:
+#   AWS_REGION, AWS_ROLE_ARN, ECR_RAILS_REPOSITORY, ECR_NGINX_REPOSITORY,
+#   ECS_CLUSTER, ECS_SERVICE, ECS_APP_TASK_FAMILY, ECS_MIGRATE_TASK_FAMILY,
+#   ECS_SUBNETS, ECS_SECURITY_GROUP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push rails image
+        env:
+          RAILS_REPO: ${{ vars.ECR_RAILS_REPOSITORY }}
+        run: |
+          docker build -f docker/app/Dockerfile \
+            -t "$RAILS_REPO:sha-${GITHUB_SHA::12}" \
+            -t "$RAILS_REPO:latest" .
+          docker push "$RAILS_REPO:sha-${GITHUB_SHA::12}"
+          docker push "$RAILS_REPO:latest"
+
+      - name: Build and push nginx image
+        env:
+          NGINX_REPO: ${{ vars.ECR_NGINX_REPOSITORY }}
+        run: |
+          docker build -f docker/nginx/Dockerfile \
+            -t "$NGINX_REPO:sha-${GITHUB_SHA::12}" \
+            -t "$NGINX_REPO:latest" .
+          docker push "$NGINX_REPO:sha-${GITHUB_SHA::12}"
+          docker push "$NGINX_REPO:latest"
+
+      - name: Fetch current "app" task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_APP_TASK_FAMILY }}" \
+            --query taskDefinition > app-task-def.json
+
+      - name: Render rails_app container in app task def
+        id: render-app-rails
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: app-task-def.json
+          container-name: rails_app
+          image: ${{ vars.ECR_RAILS_REPOSITORY }}:sha-${{ github.sha }}
+
+      - name: Render nginx container in app task def
+        id: render-app-nginx
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.render-app-rails.outputs.task-definition }}
+          container-name: nginx
+          image: ${{ vars.ECR_NGINX_REPOSITORY }}:sha-${{ github.sha }}
+
+      - name: Register new app task definition
+        id: register-app
+        run: |
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://${{ steps.render-app-nginx.outputs.task-definition }} \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch current "migrate" task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_MIGRATE_TASK_FAMILY }}" \
+            --query taskDefinition > migrate-task-def.json
+
+      - name: Render rails_app container in migrate task def
+        id: render-migrate
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: migrate-task-def.json
+          container-name: rails_app
+          image: ${{ vars.ECR_RAILS_REPOSITORY }}:sha-${{ github.sha }}
+
+      - name: Register new migrate task definition
+        id: register-migrate
+        run: |
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://${{ steps.render-migrate.outputs.task-definition }} \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Run database migration task and wait for completion
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --task-definition "${{ steps.register-migrate.outputs.arn }}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.ECS_SUBNETS }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+
+          echo "Migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "${{ vars.ECS_CLUSTER }}" --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "${{ vars.ECS_CLUSTER }}" --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+
+          echo "Migration exit code: $EXIT_CODE"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Database migration failed (exit code $EXIT_CODE), aborting deploy"
+            exit 1
+          fi
+
+      - name: Deploy new app task definition to the service
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ vars.ECS_SERVICE }}" \
+            --task-definition "${{ steps.register-app.outputs.arn }}" \
+            --force-new-deployment
+
+      - name: Wait for service to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.ECS_SERVICE }}"

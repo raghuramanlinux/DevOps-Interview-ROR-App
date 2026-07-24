@@ -1,0 +1,58 @@
+# Templated with envsubst by the official nginx docker-entrypoint at container
+# start (files under /etc/nginx/templates/*.template -> /etc/nginx/conf.d/*.conf).
+# RAILS_UPSTREAM is the only substituted token; every other $variable below is a
+# literal nginx variable evaluated at request time, left untouched by envsubst.
+#
+# - docker-compose (bridge network): RAILS_UPSTREAM=rails_app (container DNS name)
+# - ECS Fargate (awsvpc network mode, one shared network namespace per task):
+#   RAILS_UPSTREAM=127.0.0.1, since sibling containers in the same task talk
+#   over localhost, not container-name DNS.
+
+upstream rails_app_upstream {
+  server ${RAILS_UPSTREAM}:3000;
+}
+
+server {
+  listen 80;
+  server_name _ localhost;
+
+  access_log /var/log/nginx/access.log;
+  error_log /var/log/nginx/error.log;
+
+  location ~ /\. {
+    deny all;
+  }
+
+  location ~* ^.+\.(rb|log)$ {
+    deny all;
+  }
+
+  # Static (compiled) assets are served by the Rails container itself in this
+  # deployment (RAILS_SERVE_STATIC_FILES=true) since nginx runs in a separate
+  # container/image with no shared volume for /public. try_files always falls
+  # through to @rails here, which is intentional.
+  location ~ ^/(assets|images|javascripts|stylesheets|swfs|system)/ {
+    try_files $uri @rails;
+
+    access_log on;
+    gzip_static on;
+
+    expires max;
+    add_header Cache-Control public;
+    add_header Last-Modified "";
+    add_header ETag "";
+    break;
+  }
+
+  location / {
+    try_files $uri @rails;
+  }
+
+  location @rails {
+    proxy_set_header  X-Real-IP  $remote_addr;
+    proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Host $http_host;
+    proxy_redirect off;
+    proxy_pass http://rails_app_upstream;
+  }
+}

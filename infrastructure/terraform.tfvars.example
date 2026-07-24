@@ -1,0 +1,16 @@
+# Copy this file to terraform.tfvars and fill in the values below.
+# terraform.tfvars is gitignored - never commit real secrets.
+
+region       = "us-east-1"
+project_name = "ror-app"
+
+# Must be globally unique across all of S3.
+s3_bucket_name = "ror-app-<your-aws-account-id>-storage"
+
+# Contents of config/master.key from the forked repo (single line, no quotes needed here
+# beyond normal HCL string quoting). Keep this out of version control.
+rails_master_key = "<paste config/master.key contents here>"
+
+# Your GitHub username/org that owns the fork, and the fork's repo name.
+github_org  = "<your-github-username>"
+github_repo = "DevOps-Interview-ROR-App"
