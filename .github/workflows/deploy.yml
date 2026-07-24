@@ -43,19 +43,21 @@ jobs:
         env:
           RAILS_REPO: ${{ vars.ECR_RAILS_REPOSITORY }}
         run: |
+          # No "latest" tag: the ECR repos are image_tag_mutability=IMMUTABLE
+          # (best practice - sha tags are content-addressable and traceable),
+          # and "latest" would need to be overwritten every run, which an
+          # immutable repo rejects. Task definitions always reference the
+          # specific sha-<full sha> tag, so "latest" was never load-bearing.
           docker build -f docker/app/Dockerfile \
-            -t "$RAILS_REPO:sha-$GITHUB_SHA" \
-            -t "$RAILS_REPO:latest" .
+            -t "$RAILS_REPO:sha-$GITHUB_SHA" .
           docker push "$RAILS_REPO:sha-$GITHUB_SHA"
-          docker push "$RAILS_REPO:latest"
 
       - name: Build and push nginx image
         env:
           NGINX_REPO: ${{ vars.ECR_NGINX_REPOSITORY }}
         run: |
           docker build -f docker/nginx/Dockerfile \
-            -t "$NGINX_REPO:sha-$GITHUB_SHA" \
-            -t "$NGINX_REPO:latest" .
+            -t "$NGINX_REPO:sha-$GITHUB_SHA" .
           docker push "$NGINX_REPO:sha-$GITHUB_SHA"
           docker push "$NGINX_REPO:latest"
 
