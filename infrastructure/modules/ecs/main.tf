@@ -131,7 +131,12 @@ resource "aws_ecs_task_definition" "migrate" {
       essential = true
       command   = ["echo", "migration complete"]
       environment = concat(local.rails_env_base, [
-        { name = "RUN_DB_MIGRATIONS", value = "true" }
+        { name = "RUN_DB_MIGRATIONS", value = "true" },
+        # db:schema:load is classified as a destructive rake task and Rails
+        # refuses to run it against RAILS_ENV=production (even on a fresh,
+        # empty database) unless this is set. Scoped to the one-shot migrate
+        # task only - the long-running service tasks never set it.
+        { name = "DISABLE_DATABASE_ENVIRONMENT_CHECK", value = "1" }
       ])
       secrets          = local.rails_secrets
       logConfiguration = local.rails_log_config
