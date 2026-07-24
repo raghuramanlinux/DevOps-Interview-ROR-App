@@ -99,6 +99,15 @@ resource "aws_ecs_task_definition" "app" {
       portMappings = [
         { containerPort = 80, protocol = "tcp" }
       ]
+      # The image defaults RAILS_UPSTREAM=rails_app (docker-compose bridge
+      # network DNS name). In Fargate awsvpc mode, sibling containers in the
+      # same task share one network namespace and talk over localhost - the
+      # container-name DNS lookup nginx does otherwise fails with
+      # "host not found in upstream", which kills the whole task since both
+      # containers are essential.
+      environment = [
+        { name = "RAILS_UPSTREAM", value = "127.0.0.1" }
+      ]
       dependsOn = [
         { containerName = "rails_app", condition = "HEALTHY" }
       ]
