@@ -133,7 +133,14 @@ data "aws_iam_policy_document" "github_actions_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:*"]
+      # GitHub can present the subject either as plain owner/repo names, or
+      # (observed default here) with immutable @<owner_id>/@<repo_id> suffixes
+      # appended, e.g. "repo:org@123/repo@456:ref:refs/heads/main" - a
+      # rename-hijack protection. Accept both shapes.
+      values = [
+        "repo:${var.github_org}/${var.github_repo}:*",
+        "repo:${var.github_org}@*/${var.github_repo}@*:*",
+      ]
     }
   }
 }
