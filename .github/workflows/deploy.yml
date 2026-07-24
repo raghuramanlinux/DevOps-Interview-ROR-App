@@ -59,7 +59,6 @@ jobs:
           docker build -f docker/nginx/Dockerfile \
             -t "$NGINX_REPO:sha-$GITHUB_SHA" .
           docker push "$NGINX_REPO:sha-$GITHUB_SHA"
-          docker push "$NGINX_REPO:latest"
 
       - name: Fetch current "app" task definition
         run: |
