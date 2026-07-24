@@ -100,8 +100,8 @@ resource "aws_iam_role_policy" "ecs_task_exec" {
 resource "aws_iam_openid_connect_provider" "github" {
   count = var.create_github_oidc_provider ? 1 : 0
 
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
   # GitHub's OIDC token-signing thumbprint (documented by GitHub, stable across repos).
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 

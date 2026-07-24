@@ -87,6 +87,16 @@ Rails.application.configure do
   # spoofable via the ALB the way an external Host header would be.
   config.hosts << "localhost"
 
+  # The ALB health check (target_type=ip) sends the target's raw private IP
+  # as the Host header, not the LB DNS name - HostAuthorization would 403
+  # that too otherwise, which is why ECS reports the task container healthy
+  # while the ALB target group still shows it unhealthy. Scoped to the VPC's
+  # own CIDR, not a wildcard-open bypass.
+  if ENV["VPC_CIDR"].present?
+    require "ipaddr"
+    config.hosts << IPAddr.new(ENV["VPC_CIDR"])
+  end
+
   # Use a different logger for distributed setups.
   # require "syslog/logger"
   # config.logger = ActiveSupport::TaggedLogging.new(Syslog::Logger.new "app-name")

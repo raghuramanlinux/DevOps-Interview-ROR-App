@@ -3,23 +3,23 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id = data.aws_caller_identity.current.account_id
 
-  cluster_name         = "${var.project_name}-cluster"
-  service_name         = "${var.project_name}-service"
-  app_task_family      = "${var.project_name}-app"
-  migrate_task_family  = "${var.project_name}-migrate"
+  cluster_name        = "${var.project_name}-cluster"
+  service_name        = "${var.project_name}-service"
+  app_task_family     = "${var.project_name}-app"
+  migrate_task_family = "${var.project_name}-migrate"
 }
 
 module "vpc" {
   source = "./modules/vpc"
 
-  project_name              = var.project_name
-  vpc_cidr                  = var.vpc_cidr
-  azs                       = var.azs
-  public_subnet_cidrs       = var.public_subnet_cidrs
-  private_app_subnet_cidrs  = var.private_app_subnet_cidrs
-  private_db_subnet_cidrs   = var.private_db_subnet_cidrs
-  single_nat_gateway        = var.single_nat_gateway
-  tags                      = var.tags
+  project_name             = var.project_name
+  vpc_cidr                 = var.vpc_cidr
+  azs                      = var.azs
+  public_subnet_cidrs      = var.public_subnet_cidrs
+  private_app_subnet_cidrs = var.private_app_subnet_cidrs
+  private_db_subnet_cidrs  = var.private_db_subnet_cidrs
+  single_nat_gateway       = var.single_nat_gateway
+  tags                     = var.tags
 }
 
 module "ecr" {
@@ -59,18 +59,18 @@ module "s3" {
 module "rds" {
   source = "./modules/rds"
 
-  project_name             = var.project_name
-  private_db_subnet_ids    = module.vpc.private_db_subnet_ids
-  rds_sg_id                = module.security_groups.rds_sg_id
-  engine_version            = var.db_engine_version
-  instance_class            = var.db_instance_class
-  allocated_storage         = var.db_allocated_storage
-  db_name                   = var.db_name
-  db_username               = var.db_username
-  multi_az                  = var.db_multi_az
-  deletion_protection       = var.db_deletion_protection
-  skip_final_snapshot       = var.db_skip_final_snapshot
-  tags                      = var.tags
+  project_name          = var.project_name
+  private_db_subnet_ids = module.vpc.private_db_subnet_ids
+  rds_sg_id             = module.security_groups.rds_sg_id
+  engine_version        = var.db_engine_version
+  instance_class        = var.db_instance_class
+  allocated_storage     = var.db_allocated_storage
+  db_name               = var.db_name
+  db_username           = var.db_username
+  multi_az              = var.db_multi_az
+  deletion_protection   = var.db_deletion_protection
+  skip_final_snapshot   = var.db_skip_final_snapshot
+  tags                  = var.tags
 }
 
 # Rails' secret_key_base is derived from this key + config/credentials.yml.enc
@@ -95,37 +95,37 @@ resource "aws_secretsmanager_secret_version" "rails_master_key" {
 module "iam" {
   source = "./modules/iam"
 
-  project_name          = var.project_name
-  region                = var.region
-  account_id            = local.account_id
-  s3_bucket_arn         = module.s3.bucket_arn
-  secrets_manager_arns  = [module.rds.master_user_secret_arn, aws_secretsmanager_secret.rails_master_key.arn]
-  ecs_cluster_name      = local.cluster_name
-  ecs_service_name      = local.service_name
-  app_task_family       = local.app_task_family
-  migrate_task_family   = local.migrate_task_family
-  github_org            = var.github_org
-  github_repo           = var.github_repo
+  project_name                = var.project_name
+  region                      = var.region
+  account_id                  = local.account_id
+  s3_bucket_arn               = module.s3.bucket_arn
+  secrets_manager_arns        = [module.rds.master_user_secret_arn, aws_secretsmanager_secret.rails_master_key.arn]
+  ecs_cluster_name            = local.cluster_name
+  ecs_service_name            = local.service_name
+  app_task_family             = local.app_task_family
+  migrate_task_family         = local.migrate_task_family
+  github_org                  = var.github_org
+  github_repo                 = var.github_repo
   create_github_oidc_provider = var.create_github_oidc_provider
-  tags                  = var.tags
+  tags                        = var.tags
 }
 
 module "ecs" {
   source = "./modules/ecs"
 
-  project_name         = var.project_name
-  region               = var.region
-  cluster_name         = local.cluster_name
-  service_name         = local.service_name
-  app_task_family      = local.app_task_family
-  migrate_task_family  = local.migrate_task_family
+  project_name        = var.project_name
+  region              = var.region
+  cluster_name        = local.cluster_name
+  service_name        = local.service_name
+  app_task_family     = local.app_task_family
+  migrate_task_family = local.migrate_task_family
 
   private_app_subnet_ids = module.vpc.private_app_subnet_ids
-  ecs_tasks_sg_id         = module.security_groups.ecs_tasks_sg_id
-  target_group_arn        = module.alb.target_group_arn
+  ecs_tasks_sg_id        = module.security_groups.ecs_tasks_sg_id
+  target_group_arn       = module.alb.target_group_arn
 
   execution_role_arn = module.iam.ecs_task_execution_role_arn
-  task_role_arn       = module.iam.ecs_task_role_arn
+  task_role_arn      = module.iam.ecs_task_role_arn
 
   rails_image = module.ecr.repository_urls["rails"]
   nginx_image = module.ecr.repository_urls["nginx"]
@@ -147,6 +147,7 @@ module "ecs" {
   s3_bucket_name = module.s3.bucket_id
   s3_region_name = var.region
   lb_endpoint    = module.alb.alb_dns_name
+  vpc_cidr       = var.vpc_cidr
 
   tags = var.tags
 }

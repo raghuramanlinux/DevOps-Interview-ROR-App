@@ -138,6 +138,11 @@ variable "lb_endpoint" {
   type        = string
 }
 
+variable "vpc_cidr" {
+  description = "VPC CIDR, allowlisted in Rails config.hosts so ALB IP-based health check requests aren't 403'd"
+  type        = string
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

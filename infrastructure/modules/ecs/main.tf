@@ -30,6 +30,7 @@ locals {
     { name = "S3_BUCKET_NAME", value = var.s3_bucket_name },
     { name = "S3_REGION_NAME", value = var.s3_region_name },
     { name = "LB_ENDPOINT", value = var.lb_endpoint },
+    { name = "VPC_CIDR", value = var.vpc_cidr },
   ]
 
   rails_secrets = [
