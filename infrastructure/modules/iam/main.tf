@@ -100,8 +100,8 @@ resource "aws_iam_role_policy" "ecs_task_exec" {
 resource "aws_iam_openid_connect_provider" "github" {
   count = var.create_github_oidc_provider ? 1 : 0
 
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
   # GitHub's OIDC token-signing thumbprint (documented by GitHub, stable across repos).
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 
@@ -114,7 +114,10 @@ locals {
 
 data "aws_iam_policy_document" "github_actions_assume" {
   statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    # sts:TagSession is required because aws-actions/configure-aws-credentials
+    # attaches role session tags (repo/workflow/actor/etc.) by default; without
+    # it here the whole AssumeRoleWithWebIdentity call is denied.
+    actions = ["sts:AssumeRoleWithWebIdentity", "sts:TagSession"]
 
     principals {
       type        = "Federated"
