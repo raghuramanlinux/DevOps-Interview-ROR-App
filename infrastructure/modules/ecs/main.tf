@@ -165,6 +165,24 @@ resource "aws_ecs_service" "app" {
   deployment_maximum_percent         = 200
   enable_execute_command             = true
 
+  # Without this, a deployment that can never reach steady state (bad image
+  # tag, crashing container, etc.) retries indefinitely instead of rolling
+  # back - which is exactly what happened with the very first deployment
+  # here (task-def :1, referencing an image tag that had never been pushed).
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # CI (GitHub Actions) registers new task definition revisions and calls
+  # update-service directly after the initial bootstrap - Terraform only
+  # owns the *shape* of the task definition, not which revision is live.
+  # Without this, every `terraform apply` snaps the service back to
+  # whichever revision Terraform itself last created, undoing CI deploys.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
   tags = var.tags
 }
 

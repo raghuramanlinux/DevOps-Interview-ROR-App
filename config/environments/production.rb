@@ -81,6 +81,12 @@ Rails.application.configure do
 
   config.hosts <<  "#{ENV['LB_ENDPOINT']}"
 
+  # The ECS container health check curls http://localhost:3000/ directly
+  # (Host: localhost:3000), which HostAuthorization would otherwise 403 -
+  # that request never leaves the task's own network namespace, so it's not
+  # spoofable via the ALB the way an external Host header would be.
+  config.hosts << "localhost"
+
   # Use a different logger for distributed setups.
   # require "syslog/logger"
   # config.logger = ActiveSupport::TaggedLogging.new(Syslog::Logger.new "app-name")
