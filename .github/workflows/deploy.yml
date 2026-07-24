@@ -44,9 +44,9 @@ jobs:
           RAILS_REPO: ${{ vars.ECR_RAILS_REPOSITORY }}
         run: |
           docker build -f docker/app/Dockerfile \
-            -t "$RAILS_REPO:sha-${GITHUB_SHA::12}" \
+            -t "$RAILS_REPO:sha-$GITHUB_SHA" \
             -t "$RAILS_REPO:latest" .
-          docker push "$RAILS_REPO:sha-${GITHUB_SHA::12}"
+          docker push "$RAILS_REPO:sha-$GITHUB_SHA"
           docker push "$RAILS_REPO:latest"
 
       - name: Build and push nginx image
@@ -54,9 +54,9 @@ jobs:
           NGINX_REPO: ${{ vars.ECR_NGINX_REPOSITORY }}
         run: |
           docker build -f docker/nginx/Dockerfile \
-            -t "$NGINX_REPO:sha-${GITHUB_SHA::12}" \
+            -t "$NGINX_REPO:sha-$GITHUB_SHA" \
             -t "$NGINX_REPO:latest" .
-          docker push "$NGINX_REPO:sha-${GITHUB_SHA::12}"
+          docker push "$NGINX_REPO:sha-$GITHUB_SHA"
           docker push "$NGINX_REPO:latest"
 
       - name: Fetch current "app" task definition
