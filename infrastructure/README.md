@@ -6,6 +6,14 @@ ALB, an ECS Fargate service running in private subnets, an RDS Postgres
 instance, and an S3 bucket for ActiveStorage — plus a GitHub Actions pipeline
 that builds images, pushes them to ECR, runs migrations, and deploys.
 
+**Status: deployed and verified working end-to-end** — ALB → nginx → Rails →
+RDS/S3, CI/CD via GitHub Actions OIDC, `HTTP 200` with both ECS tasks
+`healthy` in the target group. See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
+for the 13 issues hit getting there and how each was diagnosed and fixed —
+useful both as a record and as a guide if you redeploy this into a different
+AWS account/region and hit the same environment-specific snags (e.g. #1,
+Postgres 13.3 availability).
+
 ## Architecture
 
 ```mermaid
@@ -26,7 +34,7 @@ flowchart TB
         end
 
         subgraph PrivateDb["Private db subnets (2 AZs)"]
-            RDS[("RDS Postgres 13.3")]
+            RDS[("RDS Postgres 13.x")]
         end
     end
 
@@ -65,27 +73,52 @@ flowchart TB
   `terraform.tfvars` or state in plaintext.
 - **GitHub Actions authenticates via OIDC**, not long-lived AWS access keys
   stored as repo secrets.
+- **Terraform and CI have a clean ownership split.** Terraform provisions the
+  cluster, service, security groups, and the *shape* of the task definitions;
+  it does not fight CI for control of which task-definition revision is
+  live (`lifecycle.ignore_changes = [task_definition]` on the service) — CI
+  registers new revisions and deploys them after the initial bootstrap. See
+  [`TROUBLESHOOTING.md` #10](TROUBLESHOOTING.md#10-terraform-apply-silently-reverted-a-live-deploy-back-to-the-broken-revision)
+  for what happens without this.
+- **A deployment circuit breaker** (`deployment_circuit_breaker { enable =
+  true, rollback = true }`) means a deployment that can never reach steady
+  state (bad image, crashing container) rolls back automatically instead of
+  retrying forever.
 
 ## App-side changes made to support this deployment
 
 The forked repo's Docker/Rails setup assumed a docker-compose bridge network
-(containers reach each other by container name). Three changes were needed
+(containers reach each other by container name). These changes were needed
 for Fargate's `awsvpc` mode, where sibling containers in a task share one
-network namespace and talk over `localhost`:
+network namespace and talk over `localhost`, plus a couple of Rails
+production-hardening defaults that don't play well with ALB/container health
+checks out of the box:
 
 1. **`docker/nginx/default.conf` → `default.conf.template`**, using nginx's
    built-in envsubst templating so the same image works in both contexts:
    `RAILS_UPSTREAM=rails_app` for docker-compose (default in the Dockerfile),
-   overridden to `RAILS_UPSTREAM=127.0.0.1` in the ECS task definition.
+   overridden to `RAILS_UPSTREAM=127.0.0.1` in the ECS task definition (the
+   ECS side of this is easy to forget — see
+   [`TROUBLESHOOTING.md` #12](TROUBLESHOOTING.md#12-deployment-circuit-breaker-fired-for-real-tasks-failed-to-start)).
 2. **`config/storage.yml`**: dropped `access_key_id`/`secret_access_key` from
    the `amazon` service so the AWS SDK falls back to the task role.
-3. **`config/environments/production.rb`**: `config.active_storage.service`
-   changed from `:local` to `:amazon`.
+3. **`config/environments/production.rb`**:
+   - `config.active_storage.service` changed from `:local` to `:amazon`.
+   - `config.hosts` now also allows `localhost` (the container's own Docker
+     health check hits `http://localhost:3000/` directly) and any IP within
+     `VPC_CIDR` (the ALB's health check, with `target_type = "ip"`, sends the
+     target's raw private IP as the `Host` header, not the LB DNS name).
+     Both were being blocked with 403s by `HostAuthorization` — see
+     [`TROUBLESHOOTING.md` #9](TROUBLESHOOTING.md#9-rails-container-unhealthy-docker-health-check)
+     and [#13](TROUBLESHOOTING.md#13-ecs-reported-tasks-healthy-alb-target-group-still-showed-them-unhealthy).
 4. **`docker/app/entrypoint.sh`**: migrations (`db:create`, `db:schema:load`,
    `db:migrate`) now run only when `RUN_DB_MIGRATIONS=true`, so they happen
    once via a dedicated one-shot ECS task instead of racing across every
    service replica on every deploy. `rails_app.env` sets this back to `true`
-   for local docker-compose, which only ever runs one replica.
+   for local docker-compose, which only ever runs one replica. The migrate
+   task also sets `DISABLE_DATABASE_ENVIRONMENT_CHECK=1`, since Rails treats
+   `db:schema:load` as a destructive action and refuses to run it against
+   `RAILS_ENV=production` otherwise, even on a brand-new database.
 
 Also worth knowing: in the original docker-compose setup nginx and rails_app
 are separate containers/images with no shared volume for `/public`, so nginx

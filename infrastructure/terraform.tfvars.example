@@ -4,6 +4,13 @@
 region       = "us-east-1"
 project_name = "ror-app"
 
+# 13.3 (the assignment README's spec) was unavailable in the account/region
+# this was verified against - AWS deprecates old minor versions over time.
+# Check `aws rds describe-db-engine-versions --engine postgres --query
+# "DBEngineVersions[?starts_with(EngineVersion, \`13.\`)].EngineVersion"`
+# and adjust if needed (see TROUBLESHOOTING.md #1).
+db_engine_version = "13.23"
+
 # Must be globally unique across all of S3.
 s3_bucket_name = "ror-app-<your-aws-account-id>-storage"
 
